@@ -3,6 +3,7 @@ Require Export Coq.Lists.List.
 Require Import Coq.Logic.JMeq.
 Require Import Coq.Classes.Morphisms.
 Require Export Coq.Sorting.Permutation.
+Require Import Coq.Logic.Eqdep_dec.
 
 Import ListNotations. Open Scope list_scope.
 
@@ -331,13 +332,47 @@ Next Obligation.
   - apply f; auto.
 Defined.
 
-(* Program Fixpoint removeInPath {A : Set} (a1 : A) (l: list A) (pth : Path a1 l) : list A := *)
-(*   match pth with *)
-(*   | Here _ ls => ls *)
-(*   | @There _ _ b ls pth' => b :: (removeInPath a1 ls pth') *)
-(*   end. *)
+Program Fixpoint PathAppLeft {A : Set} (x : A) (l r : list A) (p : Path x l) : Path x (l ++ r) :=
+  match p with
+  | Here _ l' => Here x (l' ++ r)
+  | @There _ _ b l' p' => There b (PathAppLeft x l' r p')
+  end.
 
+Program Fixpoint PathAppRight {A : Set} (x : A) (l r : list A) (p : Path x r) : Path x (l ++ r) :=
+  match l with
+  | [] => p
+  | y :: l' => There y (PathAppRight x l' r p)
+  end.
 
+Definition PathApp {A : Set} (x : A) (x : A) (l r : list A) (p : (Path x l) + (Path x r))
+  : Path x (l ++ r) :=
+  match p with
+  | inl p' => PathAppLeft x l r p'
+  | inr p' => PathAppRight x l r p'
+  end.
+
+Program Fixpoint AppPath {A : Set} (x : A) (l r : list A) (p : Path x (l ++ r))
+  : (Path x l) + (Path x r) :=
+  match l with
+  | [] => inr p
+  | (y :: l') =>
+    match p with
+    | Here _ _ => inl (Here x l')
+    | There _ p' =>
+      match AppPath x l' r p' with
+      | inl p'' => inl (There _ _)
+      | inr p'' => inr p''
+      end
+    end
+  end.
+Next Obligation.
+  apply JMeq_eq in Heq_anonymous. simpl in Heq_anonymous. inversion Heq_anonymous.
+  reflexivity.
+Defined.
+Next Obligation.
+  simpl in Heq_anonymous. apply JMeq_eq in Heq_anonymous. inversion Heq_anonymous.
+  reflexivity.
+Defined.
 
 Theorem InPathDoubleNeg : forall {A : Set} {AEq : forall a b : A, {a = b} + {a <> b}} (a : A) (l : list A),
     In a l -> (Path a l -> False) -> False.
@@ -613,7 +648,6 @@ Lemma MoveToFrontLength : forall {A : Type} AEq (l : list A) (a : A),
 Proof.
   intros A AEq l a; apply Permutation_length; exact (MoveToFrontPermuation AEq l a).
 Qed.
-
 
 Lemma OnlyNNumbersLessThanN : forall (n : nat) (l : list nat),
     (forall m, In m l -> m < n) -> length l > n -> ~ NoDup l.
@@ -1357,4 +1391,130 @@ Qed.
 Lemma combine_nil_r : forall {A : Type} {B : Type} (l : list A), @combine A B l [] = [].
 Proof.
   intros A B l; induction l; reflexivity.
+Qed.
+
+
+Theorem In_remove : forall {A : Type} (eq_dec : forall x y : A, {x = y} + {x <> y})
+                      (l : list A) (x y : A),
+    x <> y -> In y l <-> In y (remove eq_dec x l).
+Proof.
+  intros A0 eq_dec l x y H.
+  split; intro i; induction l; try (inversion i; fail).
+  - simpl. destruct (eq_dec x a).
+    -- destruct i; [exfalso; apply H; rewrite e; exact H0 | apply IHl; exact H0].
+    -- simpl; destruct i; auto.
+  - simpl in i; destruct (eq_dec x a). right; apply IHl; auto.
+    destruct i. left; auto. right; apply IHl; auto.
+Qed.
+
+Definition RepathPermutation {A : Set} (AEq : forall x y : A, {x = y} + {x <> y})
+           {l1 l2 : list A} {a : A} (p : Path a l1)
+           (perm : Permutation l1 l2) : Path a l2 :=
+  InToPath AEq (@Permutation_in A l1 l2 a perm (PathToIn p)).
+  
+Program Fixpoint removeLiftPath {A : Set} (eq_dec : forall x y : A, {x = y} + { x <> y})
+           (l : list A) (x y : A) (p : Path y (remove eq_dec x l)) : Path y l :=
+  match l with
+  | [] => _
+  | a::l' =>
+    match eq_dec x a with
+    | left e => There a (removeLiftPath eq_dec l' x y p)
+    | right n =>
+      match p with
+      | Here _ _ => Here a l'
+      | There z p' => There z (removeLiftPath eq_dec l' x y p')
+      end
+    end
+  end.
+Next Obligation.
+  simpl; destruct (eq_dec a a); [| exfalso; apply n]; reflexivity.
+Defined.  
+Next Obligation. 
+  simpl in Heq_anonymous.
+  destruct (eq_dec x a); [exfalso; apply n; exact e|].
+  apply JMeq_eq in Heq_anonymous; inversion Heq_anonymous; reflexivity.
+Defined.
+Next Obligation.
+  simpl in Heq_anonymous.
+  destruct (eq_dec x a); [exfalso; apply n; exact e|].
+  apply JMeq_eq in Heq_anonymous; inversion Heq_anonymous; reflexivity.
+Defined.
+Next Obligation.
+  simpl in Heq_anonymous.
+  destruct (eq_dec x a); [exfalso; apply n; exact e|].
+  apply JMeq_eq in Heq_anonymous; inversion Heq_anonymous; reflexivity.
+Defined.
+
+Program Fixpoint RepathRemove {A : Set} (eq_dec : forall x y : A, {x = y} + {x <> y})
+        (l : list A) (x y : A) (p : Path y l) (n : x <> y) : Path y (remove eq_dec x l) :=
+  match l with
+  | [] => _
+  | a :: l' =>
+    match eq_dec x a with
+    | left e =>
+      match p with
+      | Here _ _ => _
+      | There _ p' => RepathRemove eq_dec l' x y p' n
+      end
+    | right n =>
+      match p with
+      | Here _ _ => Here _ (remove eq_dec x l')
+      | There _ p' => There a (RepathRemove eq_dec l' x y p' n)
+      end
+    end
+  end.
+Next Obligation.
+  apply JMeq_eq in Heq_l. inversion Heq_l.
+  exfalso; apply n; rewrite H0; reflexivity.
+Defined.
+Next Obligation.
+  apply JMeq_eq in Heq_l; inversion Heq_l; reflexivity.
+Qed.
+Next Obligation.
+  apply JMeq_eq in Heq_l; inversion Heq_l; reflexivity.
+Defined.
+Next Obligation.
+  apply JMeq_eq in Heq_l; inversion Heq_l; reflexivity.
+Defined.
+
+Program Fixpoint NoRepathRemove {A : Set} (eq_dec : forall x y : A, {x = y} + {x <> y})
+        (l : list A) (x : A) (p : Path x (remove eq_dec x l)) : False :=
+  match l with
+  | [] => _
+  | a :: l' =>
+    match eq_dec x a with
+    | left e => NoRepathRemove eq_dec l' x p
+    | right n =>
+      match p with
+      | Here _ _ => _
+      | There _ p' => NoRepathRemove eq_dec l' x p'
+      end
+    end
+  end.
+Next Obligation.
+  inversion p.
+Defined.
+Next Obligation.
+  simpl; destruct (eq_dec a a) as [e | n]; [| exfalso; apply n]; reflexivity.
+Defined.
+Next Obligation.
+  simpl in Heq_anonymous. rewrite <- Heq_anonymous0 in Heq_anonymous.
+  inversion Heq_anonymous.
+  apply Eqdep.EqdepTheory.inj_pair2 in H0.
+  inversion H0. apply n; exact H1.
+Defined.
+Next Obligation.
+  simpl in Heq_anonymous. rewrite <- Heq_anonymous0 in Heq_anonymous.
+  inversion Heq_anonymous.
+  apply Eqdep.EqdepTheory.inj_pair2 in H0.
+  inversion H0. reflexivity.
+Defined.
+
+Lemma pathNotToRemoved {A : Set} (eq_dec : forall x y : A, {x = y} + {x <> y})
+      (l : list A) (x y : A) (p : Path x (remove eq_dec y l)) : x <> y.
+Proof. 
+  induction l; [inversion p |].
+  simpl in p. destruct (eq_dec y a). apply IHl; exact p.
+  inversion p. intro n'; apply n; symmetry; exact n'.
+  apply IHl; exact H1.
 Qed.

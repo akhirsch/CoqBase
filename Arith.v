@@ -27,7 +27,7 @@ Proof.
       [apply IHl; auto| apply Nat.le_max_r].
   - simpl; rewrite H; apply Nat.le_max_l.
   - simpl. transitivity (list_max default l); [apply IHl; auto | apply Nat.le_max_r].
-Qed.                        
+Qed.
 
 Fixpoint RemoveZeros (ns : list nat) : list nat :=
   match ns with

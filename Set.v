@@ -39,4 +39,4 @@ Section BoolSet.
     destruct (orb_prop _ _ H1); auto.
   Qed.
 
-  
+End BoolSet.
